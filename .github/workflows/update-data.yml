@@ -36,7 +36,9 @@ on:
 
   schedule:
     # GitHub cron is UTC.
-    # Start conservatively. Adjust after observing availability and EPEX blocking.
+    # Current setup:
+    # - ENTSO-E: daily, broad refresh
+    # - EPEX products: separate runs to reduce EPEX blocking / verification risk
     - cron: "15 06 * * *"   # ENTSO-E update
     - cron: "30 10 * * *"   # EPEX IDA1
     - cron: "30 13 * * *"   # EPEX IDA2
@@ -62,16 +64,40 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Debug repository contents
+        run: |
+          pwd
+          ls -la
+          echo "Current commit:"
+          git rev-parse HEAD
+          git log --oneline -3
+          echo "pyproject.toml:"
+          test -f pyproject.toml && cat pyproject.toml || echo "pyproject.toml missing"
+          echo "requirements.txt:"
+          test -f requirements.txt && head -50 requirements.txt || echo "requirements.txt missing"
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.13"
+          cache: "pip"
+          cache-dependency-path: |
+            requirements.txt
+            pyproject.toml
 
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install -e .
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-firefox-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            playwright-firefox-${{ runner.os }}-
 
       - name: Install Playwright Firefox
         run: |
@@ -162,13 +188,18 @@ jobs:
           cols = [
               "timestamp_utc",
               "da_price_eur_mwh",
+              "solar_forecast_da_mw",
+              "wind_total_forecast_da_mw",
+              "load_forecast_da_mw",
+              "residual_load_forecast_da_mw",
               "ida1_price_eur_mwh",
               "ida2_price_eur_mwh",
               "continuous_15min_price_eur_mwh",
               "ida1_minus_da_spread_eur_mwh",
           ]
           cols = [c for c in cols if c in df.columns]
-          print(df[cols].tail(20))
+
+          print(df[cols].tail(40))
           PY
 
       - name: Commit updated master data
