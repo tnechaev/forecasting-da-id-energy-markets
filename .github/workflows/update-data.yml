@@ -36,13 +36,27 @@ on:
 
   schedule:
     # GitHub cron is UTC.
-    # Current setup:
-    # - ENTSO-E: daily, broad refresh
-    # - EPEX products: separate runs to reduce EPEX blocking / verification risk
-    - cron: "15 06 * * *"   # ENTSO-E update
-    - cron: "30 10 * * *"   # EPEX IDA1
-    - cron: "30 13 * * *"   # EPEX IDA2
-    - cron: "30 20 * * *"   # EPEX continuous 15-min
+    #
+    # Current automatic setup: 8 scheduled attempts per day.
+    #
+    # ENTSO-E is API-based and more stable, so we refresh a rolling window.
+    # EPEX is scraped and more fragile, so products are separated and retried.
+    #
+    # ENTSO-E attempts
+    - cron: "15 06 * * *"   # ENTSO-E morning refresh
+    - cron: "15 18 * * *"   # ENTSO-E evening retry/fill
+
+    # EPEX IDA1 attempts
+    - cron: "30 10 * * *"   # IDA1 first attempt
+    - cron: "30 12 * * *"   # IDA1 retry
+
+    # EPEX IDA2 attempts
+    - cron: "30 13 * * *"   # IDA2 first attempt
+    - cron: "30 15 * * *"   # IDA2 retry
+
+    # EPEX continuous 15-min attempts
+    - cron: "30 20 * * *"   # Continuous first attempt
+    - cron: "30 23 * * *"   # Continuous retry/fill
 
 permissions:
   contents: write
@@ -73,8 +87,8 @@ jobs:
           git log --oneline -3
           echo "pyproject.toml:"
           test -f pyproject.toml && cat pyproject.toml || echo "pyproject.toml missing"
-          echo "requirements.txt:"
-          test -f requirements.txt && head -50 requirements.txt || echo "requirements.txt missing"
+          echo "requirements-data.txt:"
+          test -f requirements-data.txt && cat requirements-data.txt || echo "requirements-data.txt missing"
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -82,20 +96,20 @@ jobs:
           python-version: "3.13"
           cache: "pip"
           cache-dependency-path: |
-            requirements.txt
+            requirements-data.txt
             pyproject.toml
 
-      - name: Install Python dependencies
+      - name: Install data-fetching dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r requirements-data.txt
           pip install -e .
 
       - name: Cache Playwright browsers
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-firefox-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
+          key: playwright-firefox-${{ runner.os }}-${{ hashFiles('requirements-data.txt') }}
           restore-keys: |
             playwright-firefox-${{ runner.os }}-
 
@@ -131,33 +145,72 @@ jobs:
 
             case "${{ github.event.schedule }}" in
               "15 06 * * *")
+                echo "Running scheduled ENTSO-E morning refresh"
                 python -m energy_ida.pipelines.update_data \
                   --source entsoe \
-                  --days-back 2 \
+                  --days-back 3 \
+                  --days-forward 1
+                ;;
+
+              "15 18 * * *")
+                echo "Running scheduled ENTSO-E evening retry/fill"
+                python -m energy_ida.pipelines.update_data \
+                  --source entsoe \
+                  --days-back 3 \
                   --days-forward 1
                 ;;
 
               "30 10 * * *")
+                echo "Running scheduled EPEX IDA1 first attempt"
                 python -m energy_ida.pipelines.update_data \
                   --source epex \
                   --epex-product-group ida1 \
-                  --days-back 0 \
+                  --days-back 1 \
+                  --days-forward 0
+                ;;
+
+              "30 12 * * *")
+                echo "Running scheduled EPEX IDA1 retry"
+                python -m energy_ida.pipelines.update_data \
+                  --source epex \
+                  --epex-product-group ida1 \
+                  --days-back 1 \
                   --days-forward 0
                 ;;
 
               "30 13 * * *")
+                echo "Running scheduled EPEX IDA2 first attempt"
                 python -m energy_ida.pipelines.update_data \
                   --source epex \
                   --epex-product-group ida2 \
-                  --days-back 0 \
+                  --days-back 1 \
+                  --days-forward 0
+                ;;
+
+              "30 15 * * *")
+                echo "Running scheduled EPEX IDA2 retry"
+                python -m energy_ida.pipelines.update_data \
+                  --source epex \
+                  --epex-product-group ida2 \
+                  --days-back 1 \
                   --days-forward 0
                 ;;
 
               "30 20 * * *")
+                echo "Running scheduled EPEX continuous 15-min first attempt"
                 python -m energy_ida.pipelines.update_data \
                   --source epex \
                   --epex-product-group continuous_15 \
-                  --days-back 0 \
+                  --days-back 1 \
+                  --days-forward 0
+                ;;
+
+              "30 23 * * *")
+                echo "Running scheduled EPEX continuous 15-min retry/fill"
+                python -m energy_ida.pipelines.update_data \
+                  --source epex \
+                  --epex-product-group continuous_15 \
+                  --days-back 1 \
                   --days-forward 0
                 ;;
 

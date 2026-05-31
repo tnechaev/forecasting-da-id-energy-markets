@@ -1,0 +1,9 @@
+-r requirements-data.txt
+
+numpy
+scipy
+scikit-learn
+xgboost
+joblib
+matplotlib
+openpyxl

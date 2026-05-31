@@ -1,15 +1,1 @@
-pandas
-numpy
-pyarrow
-requests
-selenium
-beautifulsoup4
-lxml
-openpyxl
-scikit-learn
-xgboost
-matplotlib
-joblib
-pytest
-python-dotenv
-playwright
+-r requirements-dev.txt

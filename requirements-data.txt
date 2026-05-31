@@ -1,0 +1,7 @@
+pandas
+pyarrow
+requests
+python-dotenv
+playwright
+lxml
+beautifulsoup4
