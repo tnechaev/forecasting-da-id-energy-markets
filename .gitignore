@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Secrets
+.env
+*.env
+
+# OS/editor
+.DS_Store
+.vscode/
+.idea/
+
+# Local notebooks checkpoints
+.ipynb_checkpoints/
+
+# Optional raw debug files
+data/raw/**/*.html
+data/raw/**/*.json
+data/raw/**/*.xml
+data/raw/**/*.zip
+
+# Large local temporary files
+tmp/
+logs/
+
+# Local browser/debug artifacts
+debug_epex/
+*.png
+*.html
+
+# Raw downloaded/API debug data
+data/raw/
+
+# Python build metadata
+*.egg-info/
+dist/
+build/

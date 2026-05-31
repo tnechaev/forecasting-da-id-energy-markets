@@ -1,0 +1,187 @@
+name: Update market data
+
+on:
+  workflow_dispatch:
+    inputs:
+      source:
+        description: "Data source to update"
+        required: true
+        default: "entsoe"
+        type: choice
+        options:
+          - entsoe
+          - epex
+          - all
+
+      epex_product_group:
+        description: "EPEX product group"
+        required: false
+        default: "ida1"
+        type: choice
+        options:
+          - ida1
+          - ida2
+          - ida3
+          - continuous_15
+
+      days_back:
+        description: "Days back"
+        required: true
+        default: "0"
+
+      days_forward:
+        description: "Days forward"
+        required: true
+        default: "1"
+
+  schedule:
+    # GitHub cron is UTC.
+    # Start conservatively. Adjust after observing availability and EPEX blocking.
+    - cron: "15 06 * * *"   # ENTSO-E update
+    - cron: "30 10 * * *"   # EPEX IDA1
+    - cron: "30 13 * * *"   # EPEX IDA2
+    - cron: "30 20 * * *"   # EPEX continuous 15-min
+
+permissions:
+  contents: write
+
+concurrency:
+  group: market-data-update
+  cancel-in-progress: false
+
+jobs:
+  update-data:
+    runs-on: ubuntu-latest
+
+    env:
+      ENTSOE_API_KEY: ${{ secrets.ENTSOE_API_KEY }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -e .
+
+      - name: Install Playwright Firefox
+        run: |
+          python -m playwright install --with-deps firefox
+
+      - name: Run data update
+        shell: bash
+        run: |
+          set -e
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            SOURCE="${{ inputs.source }}"
+            EPEX_PRODUCT_GROUP="${{ inputs.epex_product_group }}"
+            DAYS_BACK="${{ inputs.days_back }}"
+            DAYS_FORWARD="${{ inputs.days_forward }}"
+
+            echo "Manual run:"
+            echo "SOURCE=$SOURCE"
+            echo "EPEX_PRODUCT_GROUP=$EPEX_PRODUCT_GROUP"
+            echo "DAYS_BACK=$DAYS_BACK"
+            echo "DAYS_FORWARD=$DAYS_FORWARD"
+
+            python -m energy_ida.pipelines.update_data \
+              --source "$SOURCE" \
+              --epex-product-group "$EPEX_PRODUCT_GROUP" \
+              --days-back "$DAYS_BACK" \
+              --days-forward "$DAYS_FORWARD"
+
+          else
+            echo "Scheduled run: ${{ github.event.schedule }}"
+
+            case "${{ github.event.schedule }}" in
+              "15 06 * * *")
+                python -m energy_ida.pipelines.update_data \
+                  --source entsoe \
+                  --days-back 2 \
+                  --days-forward 1
+                ;;
+
+              "30 10 * * *")
+                python -m energy_ida.pipelines.update_data \
+                  --source epex \
+                  --epex-product-group ida1 \
+                  --days-back 0 \
+                  --days-forward 0
+                ;;
+
+              "30 13 * * *")
+                python -m energy_ida.pipelines.update_data \
+                  --source epex \
+                  --epex-product-group ida2 \
+                  --days-back 0 \
+                  --days-forward 0
+                ;;
+
+              "30 20 * * *")
+                python -m energy_ida.pipelines.update_data \
+                  --source epex \
+                  --epex-product-group continuous_15 \
+                  --days-back 0 \
+                  --days-forward 0
+                ;;
+
+              *)
+                echo "Unknown schedule. Exiting."
+                exit 0
+                ;;
+            esac
+          fi
+
+      - name: Inspect master file
+        run: |
+          python - <<'PY'
+          import pandas as pd
+          from energy_ida.config import MASTER_FILE
+
+          if not MASTER_FILE.exists():
+              print(f"Master file does not exist: {MASTER_FILE}")
+              raise SystemExit(0)
+
+          df = pd.read_parquet(MASTER_FILE)
+          df["timestamp_utc"] = pd.to_datetime(df["timestamp_utc"], utc=True)
+
+          print("Shape:", df.shape)
+          print("Coverage:", df["timestamp_utc"].min(), "->", df["timestamp_utc"].max())
+          print("Duplicate timestamps:", df["timestamp_utc"].duplicated().sum())
+
+          cols = [
+              "timestamp_utc",
+              "da_price_eur_mwh",
+              "ida1_price_eur_mwh",
+              "ida2_price_eur_mwh",
+              "continuous_15min_price_eur_mwh",
+              "ida1_minus_da_spread_eur_mwh",
+          ]
+          cols = [c for c in cols if c in df.columns]
+          print(df[cols].tail(20))
+          PY
+
+      - name: Commit updated master data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add data/master/germany_ida_master_15min.parquet
+
+          if git diff --staged --quiet; then
+            echo "No data changes to commit."
+          else
+            git commit -m "Update market data [skip ci]"
+            git pull --rebase origin main
+            git push
+          fi
