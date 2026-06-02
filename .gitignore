@@ -44,3 +44,7 @@ data/raw/
 *.egg-info/
 dist/
 build/
+
+# Local diagnostics / inspection scripts and reports
+local_inspection/
+reports_local/
