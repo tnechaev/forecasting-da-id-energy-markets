@@ -91,6 +91,34 @@ def local_delivery_time_to_utc(delivery_date: date, start_time: str) -> pd.Times
         )
 
 
+def normalize_ida3_product(
+    modality: str,
+    sub_modality: str,
+    auction: str,
+    product: str,
+) -> str:
+    """
+    EPEX IDA3 currently renders as a 15-minute auction product.
+    Passing product=15 helps avoid stale/default page states.
+    """
+    if (
+        modality.lower() == "auction"
+        and sub_modality.lower() == "intraday"
+        and auction.upper() == "IDA3"
+        and not product
+    ):
+        return "15"
+
+    return product
+
+
+def format_epex_display_date(delivery_date: date) -> str:
+    """
+    EPEX date input format looks like: 03 Jun. 2026
+    """
+    return pd.Timestamp(delivery_date).strftime("%d %b. %Y")
+
+
 # ============================================================
 # URL BUILDER
 # ============================================================
@@ -105,24 +133,13 @@ def build_epex_url(
     data_mode: str = "table",
     trading_date: Optional[date | str] = "auto",
 ) -> str:
-    """
-    Examples:
+    product = normalize_ida3_product(
+        modality=modality,
+        sub_modality=sub_modality,
+        auction=auction,
+        product=product,
+    )
 
-    IDA1:
-        modality="Auction"
-        sub_modality="Intraday"
-        auction="IDA1"
-        market_area="DE-LU"
-        product=""
-
-    Continuous 15-min:
-        modality="Continuous"
-        sub_modality=""
-        auction=""
-        market_area="DE"
-        product="15"
-        trading_date=""
-    """
     delivery_str = delivery_date.strftime("%Y-%m-%d")
 
     if trading_date == "auto":
@@ -238,7 +255,7 @@ def print_page_diagnostics(page) -> None:
     try:
         body_text = page.locator("body").inner_text(timeout=5000)
         print("\nBody text preview:")
-        print(body_text[:2000])
+        print(body_text[:3000])
     except Exception as exc:
         print("Could not get body text:", exc)
 
@@ -267,28 +284,120 @@ def accept_cookies_if_present(page, timeout_ms: int = 5000) -> None:
     print("No cookie banner accepted/needed.")
 
 
-def click_data_disclaimer_if_present(page, timeout_ms: int = 5000) -> None:
-    """
-    Sometimes EPEX shows a data-use disclaimer/welcome overlay.
-    Click the accept/access button if present.
-    """
+def is_data_disclaimer_present(page) -> bool:
     selectors = [
+        "#block-epexdatadisclaimerblock",
+        "#data-disclaimer-acceptation-form",
+        "#disclaimer-block",
         "#edit-acceptationbutton",
         "#edit-acceptationbuttonmobile",
+    ]
+
+    for selector in selectors:
+        try:
+            loc = page.locator(selector).first
+            if loc.count() > 0 and loc.is_visible(timeout=1000):
+                return True
+        except Exception:
+            continue
+
+    return False
+
+
+def click_data_disclaimer_if_present(
+    page,
+    target_url: Optional[str] = None,
+    timeout_ms: int = 5000,
+) -> bool:
+    """
+    Sometimes EPEX shows a data-use disclaimer/welcome overlay.
+
+    The disclaimer form may post to /en/market-results without preserving
+    query parameters. Therefore, scrape_epex_table reloads the original target URL.
+    """
+    if not is_data_disclaimer_present(page):
+        return False
+
+    print("EPEX data-use disclaimer detected. Trying to accept it...")
+
+    if target_url:
+        try:
+            page.evaluate(
+                """
+                (url) => {
+                    const form = document.querySelector('#data-disclaimer-acceptation-form');
+                    if (form) {
+                        form.setAttribute('action', url);
+                    }
+                }
+                """,
+                target_url,
+            )
+        except Exception:
+            pass
+
+    selectors = [
+        "#edit-acceptationbuttonmobile",
+        "#edit-acceptationbutton",
         "button.data-use-acceptation-button",
         "input.data-use-acceptation-button",
+        "button[data-drupal-selector='edit-acceptationbuttonmobile']",
+        "button[data-drupal-selector='edit-acceptationbutton']",
     ]
 
     for selector in selectors:
         try:
             button = page.locator(selector).first
             button.wait_for(state="visible", timeout=timeout_ms)
-            button.click(timeout=timeout_ms)
-            print("Accepted EPEX data-use disclaimer.")
-            page.wait_for_timeout(3000)
-            return
+
+            try:
+                button.click(timeout=timeout_ms, force=True)
+            except Exception:
+                page.evaluate(
+                    """
+                    (sel) => {
+                        const el = document.querySelector(sel);
+                        if (el) el.click();
+                    }
+                    """,
+                    selector,
+                )
+
+            print(f"Accepted EPEX data-use disclaimer via {selector}.")
+            page.wait_for_timeout(4000)
+
+            try:
+                page.wait_for_load_state("domcontentloaded", timeout=30000)
+            except Exception:
+                pass
+
+            return True
+
         except Exception:
             continue
+
+    try:
+        page.evaluate(
+            """
+            () => {
+                const form = document.querySelector('#data-disclaimer-acceptation-form');
+                if (form) form.submit();
+            }
+            """
+        )
+        print("Submitted EPEX data-use disclaimer form via JS.")
+        page.wait_for_timeout(4000)
+
+        try:
+            page.wait_for_load_state("domcontentloaded", timeout=30000)
+        except Exception:
+            pass
+
+        return True
+
+    except Exception as exc:
+        print(f"Could not accept EPEX data-use disclaimer: {exc}")
+        return False
 
 
 def wait_for_page_settled(page) -> None:
@@ -305,15 +414,214 @@ def wait_for_page_settled(page) -> None:
     page.wait_for_timeout(5000)
 
 
+def get_body_text(page) -> str:
+    try:
+        return page.locator("body").inner_text(timeout=10000)
+    except Exception:
+        return ""
+
+
+def has_old_epex_table(page) -> bool:
+    """
+    The existing parser works when EPEX has rendered these table containers.
+    """
+    try:
+        return (
+            page.locator("div.js-table-values table tbody tr.child").count() > 0
+            or page.locator("div.js-table-values table tbody tr.lvl-2").count() > 0
+        )
+    except Exception:
+        return False
+
+
+def validate_loaded_product(
+    page,
+    market_area: str,
+    modality: str,
+    sub_modality: str,
+    auction: str,
+    product: str,
+) -> bool:
+    """
+    Defensive validation.
+
+    Important for IDA3:
+    EPEX displays it as "SIDC IDA3" and usually does not visibly print "15min",
+    even though the rows are 15-minute intervals from 12:00 to 24:00.
+    Therefore, do not require product text for IDA3.
+    """
+    body = get_body_text(page)
+    text = " ".join(body.split())
+    text_lower = text.lower()
+    text_upper = text.upper()
+
+    if not text:
+        return False
+
+    if "human verification" in text_lower or "verify you are human" in text_lower:
+        return False
+
+    if "confirm you are human" in text_lower or "security check" in text_lower:
+        return False
+
+    if modality and modality.lower() not in text_lower:
+        return False
+
+    if sub_modality and sub_modality.lower() not in text_lower:
+        return False
+
+    if market_area and market_area.upper() not in text_upper:
+        return False
+
+    if auction:
+        auction_upper = auction.upper()
+
+        if auction_upper == "IDA3":
+            if "IDA3" not in text_upper:
+                return False
+
+            if "AUCTION > INTRADAY" not in text_upper:
+                return False
+
+            if "DAY-AHEAD > CH" in text_upper or "DAY-AHEAD > SDAC" in text_upper:
+                return False
+
+            # Do NOT require "15min" text for IDA3.
+            return True
+
+        if auction_upper not in text_upper:
+            return False
+
+    return True
+
+
+def force_epex_filters_and_table_view(
+    page,
+    delivery_date: date,
+    market_area: str,
+    modality: str,
+    sub_modality: str,
+    auction: str,
+    product: str,
+    timeout_ms: int = 45000,
+) -> None:
+    """
+    EPEX sometimes loads the correct URL but renders the default map/filter state.
+    This forces the filter form into the requested state and clicks "See Results".
+    """
+    delivery_display = format_epex_display_date(delivery_date)
+
+    print(
+        "Forcing EPEX filters via page form: "
+        f"market_area={market_area} modality={modality} "
+        f"sub_modality={sub_modality} auction={auction} product={product} "
+        f"delivery_date={delivery_display}"
+    )
+
+    page.evaluate(
+        """
+        (args) => {
+            const fire = (el) => {
+                if (!el) return;
+                for (const ev of ['input', 'change']) {
+                    el.dispatchEvent(new Event(ev, { bubbles: true }));
+                }
+            };
+
+            const clickRadio = (name, value) => {
+                const selector = `input[name="${name}"][value="${value}"]`;
+                const el = document.querySelector(selector);
+                if (el) {
+                    el.checked = true;
+                    el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+                    fire(el);
+                }
+            };
+
+            const setInput = (name, value) => {
+                const el = document.querySelector(`input[name="${name}"]`);
+                if (el) {
+                    el.value = value;
+                    fire(el);
+                }
+            };
+
+            clickRadio('filters[modality]', args.modality);
+            clickRadio('filters[sub_modality]', args.sub_modality);
+            clickRadio('filters[auction]', args.auction);
+            clickRadio('filters[product]', args.product);
+            clickRadio('filters[data_mode]', 'table');
+
+            setInput('filters[delivery_date]', args.delivery_display);
+            setInput('filters[market_area]', args.market_area);
+
+            setInput('triggered_element', '');
+            setInput('first_triggered_date', '');
+        }
+        """,
+        {
+            "delivery_display": delivery_display,
+            "market_area": market_area,
+            "modality": modality,
+            "sub_modality": sub_modality,
+            "auction": auction,
+            "product": product,
+        },
+    )
+
+    page.wait_for_timeout(1500)
+
+    clicked = False
+
+    for selector in [
+        "a.btn-see-results",
+        "button#edit-submit-js",
+        "button[data-drupal-selector='edit-submit-js']",
+    ]:
+        try:
+            loc = page.locator(selector).first
+            if loc.count() > 0:
+                loc.click(force=True, timeout=5000)
+                clicked = True
+                print(f"Clicked EPEX results trigger: {selector}")
+                break
+        except Exception:
+            continue
+
+    if not clicked:
+        print("Could not click visible EPEX results trigger; submitting filter form via JS.")
+        page.evaluate(
+            """
+            () => {
+                const btn = document.querySelector('#edit-submit-js');
+                if (btn) {
+                    btn.click();
+                    return;
+                }
+                const form = document.querySelector('#market-data-filters-form');
+                if (form) form.submit();
+            }
+            """
+        )
+
+    try:
+        page.wait_for_load_state("networkidle", timeout=timeout_ms)
+    except Exception:
+        pass
+
+    page.wait_for_timeout(8000)
+
+
 # ============================================================
 # TABLE EXTRACTION
 # ============================================================
 
 def extract_auction_rows(page) -> tuple[list[str], list[list[str]]]:
     """
-    Auction pages such as IDA1/IDA2 usually have exactly one row per delivery interval:
-      time rows: li.child
-      data rows: tr.child
+    Auction pages such as IDA1/IDA2/IDA3 usually have one row per delivery interval.
+
+    For IDA3, the page usually contains 48 quarter-hour rows, because IDA3 covers
+    delivery periods 12:00-24:00.
     """
     time_intervals = [
         txt.strip()
@@ -401,7 +709,7 @@ def parse_table_rows(
 
         if is_continuous:
             # Continuous table columns:
-            # Low, High, Last, Weight Avg., Buy Volume, Sell Volume, Volume
+            # Low, High, Last, Weighted Avg., Buy Volume, Sell Volume, Volume
             if len(cols) < 7:
                 continue
 
@@ -413,7 +721,6 @@ def parse_table_rows(
             sell_volume = parse_number(cols[5])
             volume = parse_number(cols[6])
 
-            # Canonical continuous price: weighted average.
             price = weighted_avg_price
 
         else:
@@ -504,29 +811,13 @@ def scrape_epex_table(
     headless: bool = True,
     browser_name: str = "firefox",
 ) -> pd.DataFrame:
-    """
-    Examples:
+    product = normalize_ida3_product(
+        modality=modality,
+        sub_modality=sub_modality,
+        auction=auction,
+        product=product,
+    )
 
-    IDA1:
-        scrape_epex_table(
-            delivery_date=date(2026, 5, 30),
-            modality="Auction",
-            sub_modality="Intraday",
-            auction="IDA1",
-            market_area="DE-LU",
-        )
-
-    Continuous 15-min:
-        scrape_epex_table(
-            delivery_date=date(2026, 5, 30),
-            modality="Continuous",
-            market_area="DE",
-            product="15",
-            auction="",
-            sub_modality="",
-            trading_date="",
-        )
-    """
     url = build_epex_url(
         market_area=market_area,
         delivery_date=delivery_date,
@@ -571,11 +862,62 @@ def scrape_epex_table(
             page.goto(url, wait_until="domcontentloaded", timeout=90000)
 
             accept_cookies_if_present(page)
-            click_data_disclaimer_if_present(page)
+
+            accepted_disclaimer = click_data_disclaimer_if_present(
+                page,
+                target_url=url,
+            )
+
+            if accepted_disclaimer:
+                print("Reloading target URL after accepting EPEX disclaimer...")
+                page.goto(url, wait_until="domcontentloaded", timeout=90000)
+                wait_for_page_settled(page)
+                accept_cookies_if_present(page)
+
+                accepted_disclaimer_again = click_data_disclaimer_if_present(
+                    page,
+                    target_url=url,
+                    timeout_ms=3000,
+                )
+
+                if accepted_disclaimer_again:
+                    print("Reloading target URL after second EPEX disclaimer pass...")
+                    page.goto(url, wait_until="domcontentloaded", timeout=90000)
+
             wait_for_page_settled(page)
 
             if is_human_verification_page(page):
                 print("EPEX human verification page detected. Returning empty dataframe; retry later.")
+                save_debug_artifacts(page, prefix=prefix)
+                return empty_epex_frame()
+
+            if not has_old_epex_table(page):
+                print("EPEX old table containers not present after initial load. Forcing table view...")
+                force_epex_filters_and_table_view(
+                    page=page,
+                    delivery_date=delivery_date,
+                    market_area=market_area,
+                    modality=modality,
+                    sub_modality=sub_modality,
+                    auction=auction,
+                    product=product,
+                )
+
+            if is_human_verification_page(page):
+                print("EPEX human verification page detected after forcing table view. Returning empty dataframe; retry later.")
+                save_debug_artifacts(page, prefix=prefix)
+                return empty_epex_frame()
+
+            if not validate_loaded_product(
+                page=page,
+                market_area=market_area,
+                modality=modality,
+                sub_modality=sub_modality,
+                auction=auction,
+                product=product,
+            ):
+                print("EPEX loaded page still does not match requested product. Returning empty dataframe; retry later.")
+                print_page_diagnostics(page)
                 save_debug_artifacts(page, prefix=prefix)
                 return empty_epex_frame()
 
@@ -624,41 +966,41 @@ def scrape_epex_table(
 
 
 def normalize_product_spec(spec: tuple | dict) -> dict:
-    """
-    Backward compatible product spec handling.
-
-    Old form:
-        ("Intraday", "IDA1")
-
-    New form:
-        {
-            "modality": "Continuous",
-            "sub_modality": "",
-            "auction": "",
-            "market_area": "DE",
-            "product": "15",
-            "trading_date": "",
-        }
-    """
     if isinstance(spec, tuple):
         sub_modality, auction = spec
+
+        product = ""
+        if str(auction).upper() == "IDA3":
+            product = "15"
 
         return {
             "modality": "Auction",
             "sub_modality": sub_modality,
             "auction": auction,
             "market_area": EPEX_MARKET_AREA,
-            "product": "",
+            "product": product,
             "trading_date": "auto",
         }
 
     if isinstance(spec, dict):
+        modality = spec.get("modality", "Auction")
+        sub_modality = spec.get("sub_modality", "")
+        auction = spec.get("auction", "")
+        product = spec.get("product", "")
+
+        product = normalize_ida3_product(
+            modality=modality,
+            sub_modality=sub_modality,
+            auction=auction,
+            product=product,
+        )
+
         return {
-            "modality": spec.get("modality", "Auction"),
-            "sub_modality": spec.get("sub_modality", ""),
-            "auction": spec.get("auction", ""),
+            "modality": modality,
+            "sub_modality": sub_modality,
+            "auction": auction,
             "market_area": spec.get("market_area", EPEX_MARKET_AREA),
-            "product": spec.get("product", ""),
+            "product": product,
             "trading_date": spec.get("trading_date", "auto"),
         }
 
@@ -673,25 +1015,6 @@ def fetch_epex_germany_for_dates(
     browser_name: str = "firefox",
     pause_seconds: float = 60.0,
 ) -> pd.DataFrame:
-    """
-    Inclusive date range.
-
-    Example products:
-
-        products = [
-            ("Intraday", "IDA1"),
-            ("Intraday", "IDA2"),
-            ("Intraday", "IDA3"),
-            {
-                "modality": "Continuous",
-                "sub_modality": "",
-                "auction": "",
-                "market_area": "DE",
-                "product": "15",
-                "trading_date": "",
-            },
-        ]
-    """
     all_parts = []
 
     normalized_products = [normalize_product_spec(p) for p in products]

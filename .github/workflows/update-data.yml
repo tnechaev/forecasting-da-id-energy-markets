@@ -19,6 +19,7 @@ on:
         default: "ida1"
         type: choice
         options:
+          - day_ahead
           - ida1
           - ida2
           - ida3
@@ -37,11 +38,14 @@ on:
   schedule:
     # GitHub cron is UTC.
     #
-    # Current automatic setup: 8 scheduled attempts per day.
+    # Automatic setup: 10 scheduled attempts per day.
     #
     # ENTSO-E is API-based and more stable, so we refresh a rolling window.
     # EPEX is scraped and more fragile, so products are separated and retried.
     #
+    # IDA3 is now included. IDA3 normally covers 12:00-24:00 local delivery
+    # periods and gives 48 quarter-hour rows.
+
     # ENTSO-E attempts
     - cron: "15 06 * * *"   # ENTSO-E morning refresh
     - cron: "15 18 * * *"   # ENTSO-E evening retry/fill
@@ -53,6 +57,10 @@ on:
     # EPEX IDA2 attempts
     - cron: "30 13 * * *"   # IDA2 first attempt
     - cron: "30 15 * * *"   # IDA2 retry
+
+    # EPEX IDA3 attempts
+    - cron: "30 09 * * *"   # IDA3 first attempt
+    - cron: "30 11 * * *"   # IDA3 retry
 
     # EPEX continuous 15-min attempts
     - cron: "30 20 * * *"   # Continuous first attempt
@@ -196,6 +204,24 @@ jobs:
                   --days-forward 0
                 ;;
 
+              "30 09 * * *")
+                echo "Running scheduled EPEX IDA3 first attempt"
+                python -m energy_ida.pipelines.update_data \
+                  --source epex \
+                  --epex-product-group ida3 \
+                  --days-back 1 \
+                  --days-forward 0
+                ;;
+
+              "30 11 * * *")
+                echo "Running scheduled EPEX IDA3 retry"
+                python -m energy_ida.pipelines.update_data \
+                  --source epex \
+                  --epex-product-group ida3 \
+                  --days-back 1 \
+                  --days-forward 0
+                ;;
+
               "30 20 * * *")
                 echo "Running scheduled EPEX continuous 15-min first attempt"
                 python -m energy_ida.pipelines.update_data \
@@ -247,12 +273,32 @@ jobs:
               "residual_load_forecast_da_mw",
               "ida1_price_eur_mwh",
               "ida2_price_eur_mwh",
+              "ida3_price_eur_mwh",
               "continuous_15min_price_eur_mwh",
               "ida1_minus_da_spread_eur_mwh",
+              "ida2_minus_da_spread_eur_mwh",
+              "ida3_minus_da_spread_eur_mwh",
+              "ida3_volume_mw",
+              "ida3_source",
+              "ida3_resolution_minutes",
           ]
           cols = [c for c in cols if c in df.columns]
 
-          print(df[cols].tail(40))
+          print(df[cols].tail(80).to_string(index=False))
+
+          for c in [
+              "ida1_price_eur_mwh",
+              "ida2_price_eur_mwh",
+              "ida3_price_eur_mwh",
+              "continuous_15min_price_eur_mwh",
+          ]:
+              if c in df.columns:
+                  s = df[["timestamp_utc", c]].dropna()
+                  print()
+                  print(c)
+                  print("  non-null rows:", len(s))
+                  print("  first:", s["timestamp_utc"].min() if len(s) else None)
+                  print("  last:", s["timestamp_utc"].max() if len(s) else None)
           PY
 
       - name: Commit updated master data
@@ -261,6 +307,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
           git add data/master/germany_ida_master_15min.parquet
+          git add data/audit/entsoe_document_log.parquet || true
 
           if git diff --staged --quiet; then
             echo "No data changes to commit."

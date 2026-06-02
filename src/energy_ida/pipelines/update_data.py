@@ -24,22 +24,41 @@ def build_date_window(days_back: int = 2, days_forward: int = 1):
 # EPEX WIDE TRANSFORM
 # ============================================================
 
+def _clean_token(value) -> str:
+    token = str(value).lower().strip()
+
+    if token in {"", "nan", "none", "<na>", "nat"}:
+        return ""
+
+    return token
+
+
 def make_product_name(row: pd.Series) -> str:
-    area = str(row["epex_market_area"]).lower().replace("-", "_")
-    modality = str(row["epex_modality"]).lower()
-    sub = str(row["epex_sub_modality"]).lower()
-    auction = str(row["epex_auction"]).lower()
-    product = str(row["epex_product"]).lower()
+    """
+    Build a stable EPEX product name from long-form scraper output.
+
+    Important:
+    For IDA1/IDA2/IDA3, we deliberately do NOT append product=15 to the
+    product name. EPEX IDA3 now needs product=15 in the URL, but our master
+    columns should still be named ida3_price_eur_mwh, not ida3_15min_price...
+    """
+    area = _clean_token(row["epex_market_area"]).replace("-", "_")
+    modality = _clean_token(row["epex_modality"])
+    sub = _clean_token(row["epex_sub_modality"])
+    auction = _clean_token(row["epex_auction"])
+    product = _clean_token(row["epex_product"])
 
     parts = ["epex", area, modality]
 
-    if sub and sub not in {"nan", "none", "<na>"}:
+    if sub:
         parts.append(sub)
 
-    if auction and auction not in {"nan", "none", "<na>"}:
+    if auction:
         parts.append(auction)
 
-    if product and product not in {"nan", "none", "<na>"}:
+    # Do not append product suffix for IDA auctions.
+    # IDA3 uses product=15 in the URL but still maps to ida3_* master columns.
+    if product and auction not in {"ida1", "ida2", "ida3"}:
         parts.append(f"{product}min")
 
     return "_".join(parts)
@@ -47,8 +66,10 @@ def make_product_name(row: pd.Series) -> str:
 
 def expand_hourly_da_to_15min(out: pd.DataFrame) -> pd.DataFrame:
     """
-    DA prices are hourly. The master table is 15-min.
-    This expands each DA hourly value into four quarter-hour rows.
+    DA prices can be hourly. The master table is 15-min.
+    This expands each hourly DA value into four quarter-hour rows.
+
+    If DA prices are already 15-min, this is effectively harmless.
     """
     if "da_price_eur_mwh" not in out.columns:
         return out
@@ -73,10 +94,18 @@ def expand_hourly_da_to_15min(out: pd.DataFrame) -> pd.DataFrame:
     if da.empty:
         return out
 
+    da = da.sort_values("timestamp_utc").drop_duplicates("timestamp_utc", keep="last")
+
+    deltas = da["timestamp_utc"].diff().dropna()
+
+    if not deltas.empty:
+        most_common_delta = deltas.mode().iloc[0]
+
+        if most_common_delta == pd.Timedelta(minutes=15):
+            return out.sort_values("timestamp_utc").reset_index(drop=True)
+
     da = (
-        da.sort_values("timestamp_utc")
-          .drop_duplicates("timestamp_utc", keep="last")
-          .set_index("timestamp_utc")
+        da.set_index("timestamp_utc")
           .resample("15min")
           .ffill(limit=3)
           .reset_index()
@@ -86,6 +115,55 @@ def expand_hourly_da_to_15min(out: pd.DataFrame) -> pd.DataFrame:
     out = out.merge(da, on="timestamp_utc", how="outer")
 
     return out.sort_values("timestamp_utc").reset_index(drop=True)
+
+
+def add_epex_live_metadata_columns(out: pd.DataFrame) -> pd.DataFrame:
+    """
+    Add product-level source/resolution metadata for newly fetched EPEX rows.
+    These columns are useful later for model filtering/auditing.
+    """
+    if out.empty:
+        return out
+
+    out = out.copy()
+
+    product_price_cols = {
+        "ida1": "ida1_price_eur_mwh",
+        "ida2": "ida2_price_eur_mwh",
+        "ida3": "ida3_price_eur_mwh",
+    }
+
+    for product, price_col in product_price_cols.items():
+        if price_col not in out.columns:
+            continue
+
+        mask = out[price_col].notna()
+
+        source_col = f"{product}_source"
+        resolution_col = f"{product}_resolution_minutes"
+
+        if source_col not in out.columns:
+            out[source_col] = pd.NA
+
+        if resolution_col not in out.columns:
+            out[resolution_col] = pd.NA
+
+        out.loc[mask, source_col] = "epex_live"
+        out.loc[mask, resolution_col] = 15.0
+
+    if "continuous_15min_price_eur_mwh" in out.columns:
+        mask = out["continuous_15min_price_eur_mwh"].notna()
+
+        if "continuous_15min_source" not in out.columns:
+            out["continuous_15min_source"] = pd.NA
+
+        if "continuous_15min_resolution_minutes" not in out.columns:
+            out["continuous_15min_resolution_minutes"] = pd.NA
+
+        out.loc[mask, "continuous_15min_source"] = "epex_live"
+        out.loc[mask, "continuous_15min_resolution_minutes"] = 15.0
+
+    return out
 
 
 def wide_epex(epex_long: pd.DataFrame) -> pd.DataFrame:
@@ -161,11 +239,18 @@ def wide_epex(epex_long: pd.DataFrame) -> pd.DataFrame:
         "epex_de_lu_auction_intraday_ida2_sell_volume_mwh": "ida2_sell_volume_mw",
         "epex_de_lu_auction_intraday_ida2_volume_mwh": "ida2_volume_mw",
 
-        # IDA3
+        # IDA3.
+        # The first four are the canonical names after make_product_name().
         "epex_de_lu_auction_intraday_ida3_price_eur_mwh": "ida3_price_eur_mwh",
         "epex_de_lu_auction_intraday_ida3_buy_volume_mwh": "ida3_buy_volume_mw",
         "epex_de_lu_auction_intraday_ida3_sell_volume_mwh": "ida3_sell_volume_mw",
         "epex_de_lu_auction_intraday_ida3_volume_mwh": "ida3_volume_mw",
+
+        # Defensive aliases in case product=15 is ever included upstream.
+        "epex_de_lu_auction_intraday_ida3_15min_price_eur_mwh": "ida3_price_eur_mwh",
+        "epex_de_lu_auction_intraday_ida3_15min_buy_volume_mwh": "ida3_buy_volume_mw",
+        "epex_de_lu_auction_intraday_ida3_15min_sell_volume_mwh": "ida3_sell_volume_mw",
+        "epex_de_lu_auction_intraday_ida3_15min_volume_mwh": "ida3_volume_mw",
 
         # Continuous 15-min
         "epex_de_continuous_15min_price_eur_mwh": "continuous_15min_price_eur_mwh",
@@ -179,15 +264,15 @@ def wide_epex(epex_long: pd.DataFrame) -> pd.DataFrame:
     }
 
     for src, dst in alias_map.items():
-        if src in out.columns and dst not in out.columns:
-            out[dst] = out[src]
+        if src in out.columns:
+            if dst not in out.columns:
+                out[dst] = out[src]
+            else:
+                out[dst] = out[dst].combine_first(out[src])
 
     out = expand_hourly_da_to_15min(out)
-
-    if "ida1_price_eur_mwh" in out.columns and "da_price_eur_mwh" in out.columns:
-        out["ida1_minus_da_spread_eur_mwh"] = (
-            out["ida1_price_eur_mwh"] - out["da_price_eur_mwh"]
-        )
+    out = add_epex_live_metadata_columns(out)
+    out = recompute_derived_columns(out)
 
     return out.sort_values("timestamp_utc").reset_index(drop=True)
 
@@ -264,10 +349,12 @@ def recompute_derived_columns(df: pd.DataFrame) -> pd.DataFrame:
     if "timestamp_utc" in df.columns:
         df["timestamp_utc"] = pd.to_datetime(df["timestamp_utc"], utc=True)
 
-    if "ida1_price_eur_mwh" in df.columns and "da_price_eur_mwh" in df.columns:
-        df["ida1_minus_da_spread_eur_mwh"] = (
-            df["ida1_price_eur_mwh"] - df["da_price_eur_mwh"]
-        )
+    for product in ["ida1", "ida2", "ida3"]:
+        price_col = f"{product}_price_eur_mwh"
+        spread_col = f"{product}_minus_da_spread_eur_mwh"
+
+        if price_col in df.columns and "da_price_eur_mwh" in df.columns:
+            df[spread_col] = df[price_col] - df["da_price_eur_mwh"]
 
     if "load_forecast_da_mw" in df.columns and "renewable_total_forecast_da_mw" in df.columns:
         df["residual_load_forecast_da_mw"] = (
@@ -372,6 +459,22 @@ def main():
     print(f"Rows after: {len(combined)}")
     print(f"Duplicate timestamps after save: {duplicate_count}")
     print(f"Coverage: {combined['timestamp_utc'].min()} -> {combined['timestamp_utc'].max()}")
+
+    inspect_cols = [
+        "timestamp_utc",
+        "da_price_eur_mwh",
+        "ida1_price_eur_mwh",
+        "ida2_price_eur_mwh",
+        "ida3_price_eur_mwh",
+        "continuous_15min_price_eur_mwh",
+        "ida1_minus_da_spread_eur_mwh",
+        "ida2_minus_da_spread_eur_mwh",
+        "ida3_minus_da_spread_eur_mwh",
+    ]
+    inspect_cols = [c for c in inspect_cols if c in combined.columns]
+
+    print("\nRecent rows for key EPEX columns:")
+    print(combined[inspect_cols].tail(80).to_string(index=False))
 
 
 if __name__ == "__main__":
