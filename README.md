@@ -1,45 +1,43 @@
 # DA / Intraday Energy Market Forecasting
 
-Production-style forecasting framework for German day-ahead and intraday electricity markets.
+Production-style forecasting framework for German day-ahead (DA) and intraday (ID) electricity markets.
 
-The project currently focuses on forecasting German **DA–ID price relationships** for EPEX intraday auctions:
+The project currently focuses on forecasting German **DA–ID price relationships** for EPEX ID auctions: IDA1/2/3. ID Continuous prices are supported and collected, but the data sample is too small for now.
 
-- `IDA1`
-- `IDA2`
-- `IDA3`
-- optional future support for continuous intraday prices
-
-Two target definitions are tested:
-
+Two target definitions are currently tested:
 - **Direct spread forecast**
   - `y = ID price - DA price`
-  - example: `IDA1 - DA`
 - **Direct price forecast**
   - `y = ID price`
   - implied spread signal: `predicted ID price - known DA price`
 
-The trading interpretation is:
-
+Trading interpretation:
 - forecast the expected ID–DA spread;
 - trade only when the predicted spread is large enough;
 - evaluate both forecast quality and thresholded trading performance.
+
+The project scope will be possibly extended to **generation/load forecasting**, and using these forecasts to predict spreads/prices. Modeling choices, as well as using ensemble models, will be tested and adapted for the task as necessary. The data collection and model re-training are to be done automatically via Github Actions on the cloud on a daily basis. More heavy tasks, such as feature selection adjustment or hyperparameter tuning, would be done either locally or scheduled on a different basis. The forecast results (data, visualization) are to be posted on a separate page, more on that soon.
+
+ In case of questions, interest or a specific idea to implement, feel free to reach out.
 
 ---
 
 ## Data
 
+Most of the data, except older DA prices, is in **15 min** resolution. DA data in hourly resolution uses the same value for quarter-hourly (QH) intervals in that hour.
+
 ### Market data
 
-- **EPEX Spot**
-  - German/Luxembourg intraday auction prices:
-    - `IDA1`
-    - `IDA2`
-    - `IDA3`
-  - partial support for continuous intraday weighted-average prices
+- **EPEX Spot** -- automatic scraper, data collection on a daily basis (mutliple attempts for failure protection) via Github Actions. The data is licenced, beware of limitations of use. Here it's not used for commercial purposes. Idea for the scraper as well as some of the older data are from [here](https://github.com/vsevolodnedora)
+  - DE (/LU) intraday auction prices:
+    - `IDA1`, full 2021 + from 09.2024 onwards. Longest history, most stable for modeling.
+    - `IDA2`, from 09.2024 onwards, shorter but still usable.
+    - `IDA3`, from 11.2025 onwards (when 15 min resolution became available). Very limited data sample, currently the most unstable modeling target
+  - Continuous, from basically 06.2026 onwards. Started data collection but cannot use it as of now.
 
 ### Fundamentals and forecasts
 
-- **ENTSO-E / German TSO data**
+- **ENTSO-E / German TSO data** -- automatic daily collection via their API.
   - day-ahead prices
   - load forecasts
   - solar forecasts
@@ -50,7 +48,7 @@ The trading interpretation is:
 
 ### Master dataset
 
-The modelling master file is:
+The master file containing all the data, sorted by timestamp (timestamps converted to UTC where different) and checked for completeness/gaps, is:
 
 ```text
 data/master/germany_ida_master_15min.parquet
@@ -59,16 +57,8 @@ data/master/germany_ida_master_15min.parquet
 Current setup:
 
 - UTC-indexed master table via `timestamp_utc`
-- 15-minute resolution where available
+- 15-min resolution where available
 - target-specific feature building with lookahead checks
-- ENTSO-E backfill for EPEX-imported IDA2/IDA3 periods
-
-Approximate current data situation:
-
-- `IDA1`: longest and most stable history
-- `IDA2`: shorter but usable after historical EPEX import and ENTSO-E backfill
-- `IDA3`: shortest and currently most unstable modelling target
-- continuous intraday: available only partially and not yet a primary target
 
 ---
 
@@ -118,15 +108,16 @@ predicted ID price - known DA price
 
 Current model set:
 
-- **Seasonal naive**
-  - same-quarter-hour persistence baseline
-  - important benchmark because ID spreads have strong local seasonality
+- **Seasonal naive baseline**
+  - same-quarter-hour persistence
+  - used as a benchmark because ID spreads have strong local seasonality
 - **ElasticNet**
   - regularized linear model
-  - useful as a conservative ML baseline
   - good for handling many collinear features
+  - useful as a conservative ML baseline
 - **XGBoost**
   - decision tree (nonlinear) model
+  - well-tunable, reasonable in terms of computing resources, suitable for nonlinear/threshold-like interactions 
   - feature selection and Optuna tuning are stored as reusable artifacts
 
 Model artifacts are stored under:
@@ -134,12 +125,12 @@ Model artifacts are stored under:
 ```text
 model_artifacts/
 ```
-
+An ensemble model may be implemented later to reduce the systematic errors of individual models.
 ---
 
 ## Evaluation
 
-Backtests are walk-forward and currently use expanding windows for the latest full sweep.
+Backtests are walk-forward and currently use expanding windows. Rolling windows are also supported, but are not ideal for the short history and large time gaps present here.
 
 Forecast metrics:
 
@@ -166,7 +157,7 @@ Supported window modes:
 
 ## Current intermediate results
 
-These results are preliminary research outputs, not production trading results.
+**These results are preliminary research outputs, not production trading results!** PnL values reported below **do not** include transaction costs (TC). More realistic trading implementation and at least some TC assumptions will be included shortly.
 
 ### IDA1 spread
 
@@ -251,7 +242,7 @@ Notes:
 
 - ElasticNet has the best RMSE/MAE and positive PnL in this snapshot;
 - XGBoost is weaker than ElasticNet in this run;
-- `IDA3_price` remains unstable because the usable history is short.
+- `IDA3_price` remains unstable because the history is short.
 
 ---
 
@@ -265,8 +256,8 @@ Notes:
   - higher noise;
   - unstable ML improvement over baseline.
 - ElasticNet is surprisingly competitive and should remain in the model set.
-- XGBoost benefits from Optuna tuning but is not automatically superior.
-- Seasonal naive remains a strong benchmark and should not be removed.
+- XGBoost benefits from Optuna tuning but is not necessarily superior for this data.
+- Seasonal naive is a strong benchmark and will be kept for further comparisons.
 
 ---
 
@@ -277,9 +268,7 @@ Notes:
 - add daily model training / forecast generation pipeline;
 - store generated forecasts as timestamped artifacts;
 - evaluate realized forecasts once actual auction outcomes arrive;
-- test ensemble combinations:
-  - seasonal naive + ElasticNet
-  - ElasticNet + XGBoost
+- test ensemble combinations
 - investigate whether `IDA3` needs:
   - different target definition;
   - shorter horizon;
@@ -303,4 +292,4 @@ Work in progress. Current repository snapshot shows:
 - feature selection;
 - Optuna tuning for XGBoost;
 - walk-forward evaluation;
-- first cross-target modelling comparison.
+- first cross-target modeling comparison.
