@@ -1,0 +1,9 @@
+# Keep notebooks in the repo, but exclude them from GitHub language statistics.
+*.ipynb linguist-vendored
+
+# Binary/data artifacts should not affect language statistics.
+*.parquet linguist-vendored
+*.csv linguist-vendored
+*.xlsx linguist-vendored
+*.pkl linguist-vendored
+*.joblib linguist-vendored
