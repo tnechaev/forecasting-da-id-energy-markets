@@ -1,0 +1,65 @@
+{
+  "target": "ida1_price",
+  "target_kind": "price",
+  "target_column": "ida1_price_eur_mwh",
+  "model_type": "xgboost",
+  "objective_metric": "rmse_overfit_penalized",
+  "best_score": 21.89347462390856,
+  "best_trial_number": 47,
+  "best_params": {
+    "n_estimators": 500,
+    "max_depth": 2,
+    "learning_rate": 0.07141248428618581,
+    "subsample": 0.799303083963471,
+    "colsample_bytree": 0.6805328184822559,
+    "min_child_weight": 63.63941120767749,
+    "reg_lambda": 13.962232049236702,
+    "reg_alpha": 13.537125033672998,
+    "gamma": 12.265435450555575,
+    "objective": "reg:squarederror",
+    "tree_method": "hist",
+    "random_state": 42,
+    "n_jobs": 1
+  },
+  "selected_features_json": "model_artifacts/feature_selection/ida1_price/xgboost/selected_features.json",
+  "n_features": 8,
+  "features": [
+    "ida1_price_eur_mwh_rolling_mean_7d_same_local_qh",
+    "da_price_eur_mwh",
+    "ida1_price_eur_mwh_lag_1d_same_local_qh",
+    "ida1_price_eur_mwh_rolling_median_3d_same_local_qh",
+    "da_price_eur_mwh_rolling_median_14d_same_local_qh",
+    "ida1_price_eur_mwh_rolling_median_28d_same_local_qh",
+    "load_forecast_da_mw_lag_7d_same_local_qh",
+    "residual_load_forecast_da_mw_lag_1d_same_local_qh"
+  ],
+  "fold_setup": {
+    "window_mode": "expanding",
+    "train_window_days": 365,
+    "gap_days": 1,
+    "val_days": 30,
+    "step_days": 30,
+    "max_folds": null,
+    "folds": 18,
+    "fold_date_basis": "timestamp_utc"
+  },
+  "tuning_setup": {
+    "n_trials": 50,
+    "n_jobs": 2,
+    "max_allowed_overfit_ratio": 1.5,
+    "overfit_penalty_weight": 1.0,
+    "threshold_quantile": 0.6
+  },
+  "best_user_attrs": {
+    "score": 21.89347462390856,
+    "mean_val_rmse": 21.574284886425062,
+    "mean_val_mae": 12.288349701103597,
+    "mean_overfit_ratio_rmse": 0.91595792068486,
+    "mean_overfit_excess": 0.01479491622382054,
+    "mean_spearman": 0.9278037226771468,
+    "mean_signal_spearman": 0.44744887052793203,
+    "mean_directional_accuracy": 0.6649647614975929,
+    "total_pnl": 235160.37749999997,
+    "elapsed_seconds": 12.50098892202368
+  }
+}

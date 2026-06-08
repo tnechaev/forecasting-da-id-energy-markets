@@ -1,0 +1,60 @@
+{
+  "model_type": "elasticnet",
+  "target_name": "ida1_spread",
+  "target_column": "ida1_minus_da_spread_eur_mwh",
+  "selected_features": [
+    "ida1_minus_da_spread_eur_mwh_rolling_median_28d_same_local_qh",
+    "ida1_minus_da_spread_eur_mwh_rolling_median_7d_same_local_qh",
+    "ida1_minus_da_spread_eur_mwh_lag_1d_same_local_qh",
+    "ida1_minus_da_spread_eur_mwh_rolling_mean_14d_same_local_qh",
+    "wind_onshore_da_forecast_error_mw_lag_1d_same_local_qh",
+    "wind_total_forecast_revision_id_minus_da_mw_rolling_std_3d_same_local_qh",
+    "da_price_eur_mwh",
+    "wind_total_forecast_id_mw_lag_1d_same_local_qh"
+  ],
+  "config": {
+    "selection_method": "elasticnet_coefficients",
+    "alpha_grid": [
+      0.01,
+      0.03,
+      0.1,
+      0.3,
+      1.0,
+      3.0,
+      10.0,
+      30.0
+    ],
+    "l1_ratio_grid": [
+      0.5,
+      0.7,
+      0.9,
+      1.0
+    ],
+    "grid_size_per_fold": 32,
+    "total_fits": 576,
+    "train_window_days": 365,
+    "gap_days": 1,
+    "val_days": 30,
+    "step_days": 30,
+    "window_mode": "expanding",
+    "fold_date_basis": "timestamp_utc",
+    "rolling_alias": "rolling_gap_aware",
+    "max_folds": null,
+    "min_selection_frequency": 0.65,
+    "coefficient_epsilon": 1e-08,
+    "min_non_missing_fraction": 0.1,
+    "max_train_rows_per_fold": 30000,
+    "fast_mode": false,
+    "n_jobs": 4,
+    "parallel_backend": "threads",
+    "corr_threshold": 0.92,
+    "corr_pruning": "within_feature_pool_no_forced_pool_quotas",
+    "max_total_features": 25,
+    "max_features_per_family": 4,
+    "max_allowed_overfit_ratio": 1.5,
+    "clean_folds_used_for_selection": 18,
+    "n_features_before_prefilter": 314,
+    "n_features_after_prefilter_and_corr_prune": 208,
+    "elapsed_seconds": 503.46155952697154
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "target": "ida3_spread",
+  "target_kind": "spread",
+  "target_column": "ida3_minus_da_spread_eur_mwh",
+  "model_type": "xgboost",
+  "objective_metric": "rmse_overfit_penalized",
+  "best_score": 30.49650608521372,
+  "best_trial_number": 45,
+  "best_params": {
+    "n_estimators": 100,
+    "max_depth": 1,
+    "learning_rate": 0.006198967195289247,
+    "subsample": 0.6608409972928174,
+    "colsample_bytree": 0.3058443281168568,
+    "min_child_weight": 6.18826263644887,
+    "reg_lambda": 119.48389437580175,
+    "reg_alpha": 0.48747882915122936,
+    "gamma": 6.682999506959891,
+    "objective": "reg:squarederror",
+    "tree_method": "hist",
+    "random_state": 42,
+    "n_jobs": 1
+  },
+  "selected_features_json": "model_artifacts/feature_selection/ida3_spread/xgboost/selected_features.json",
+  "n_features": 11,
+  "features": [
+    "load_da_forecast_error_mw_rolling_mean_3d_same_local_qh",
+    "wind_onshore_forecast_da_mw",
+    "ida3_price_eur_mwh_lag_14d_same_local_qh",
+    "ida3_minus_da_spread_eur_mwh_regime_vol_7d_over_28d",
+    "wind_onshore_da_forecast_error_mw_rolling_mean_3d_same_local_qh",
+    "ida3_minus_da_spread_eur_mwh_rolling_std_3d_same_local_qh",
+    "ida3_price_eur_mwh_regime_vol_7d_over_28d",
+    "ida3_minus_da_spread_eur_mwh_rolling_median_3d_same_local_qh",
+    "ida3_price_eur_mwh_regime_abs_median_28d_over_vol",
+    "load_forecast_da_mw_lag_1d_same_local_qh",
+    "wind_offshore_forecast_id_mw_lag_14d_same_local_qh"
+  ],
+  "fold_setup": {
+    "window_mode": "expanding",
+    "train_window_days": 30,
+    "gap_days": 1,
+    "val_days": 10,
+    "step_days": 10,
+    "max_folds": null,
+    "folds": 9,
+    "fold_date_basis": "timestamp_utc"
+  },
+  "tuning_setup": {
+    "n_trials": 50,
+    "n_jobs": 2,
+    "max_allowed_overfit_ratio": 1.5,
+    "overfit_penalty_weight": 1.0,
+    "threshold_quantile": 0.6
+  },
+  "best_user_attrs": {
+    "score": 30.49650608521372,
+    "mean_val_rmse": 28.115264357311467,
+    "mean_val_mae": 16.378570830347584,
+    "mean_overfit_ratio_rmse": 0.808083534668192,
+    "mean_overfit_excess": 0.08469569048469588,
+    "mean_spearman": 0.044194521506812266,
+    "mean_signal_spearman": 0.044194521506812266,
+    "mean_directional_accuracy": 0.5240740740740741,
+    "total_pnl": 7890.130000000001,
+    "elapsed_seconds": 0.3605950750061311
+  }
+}

@@ -1,0 +1,58 @@
+{
+  "model_type": "elasticnet",
+  "target_name": "ida3_price",
+  "target_column": "ida3_price_eur_mwh",
+  "selected_features": [
+    "da_price_eur_mwh",
+    "solar_forecast_id_mw",
+    "ida3_minus_da_spread_eur_mwh_lag_1d_same_local_qh",
+    "wind_onshore_da_forecast_error_mw_lag_2d_same_local_qh",
+    "load_da_forecast_error_mw_rolling_std_3d_same_local_qh",
+    "ida3_minus_da_spread_eur_mwh_rolling_std_3d_same_local_qh"
+  ],
+  "config": {
+    "selection_method": "elasticnet_coefficients",
+    "alpha_grid": [
+      0.01,
+      0.03,
+      0.1,
+      0.3,
+      1.0,
+      3.0,
+      10.0,
+      30.0
+    ],
+    "l1_ratio_grid": [
+      0.5,
+      0.7,
+      0.9,
+      1.0
+    ],
+    "grid_size_per_fold": 32,
+    "total_fits": 288,
+    "train_window_days": 30,
+    "gap_days": 1,
+    "val_days": 10,
+    "step_days": 10,
+    "window_mode": "expanding",
+    "fold_date_basis": "timestamp_utc",
+    "rolling_alias": "rolling_gap_aware",
+    "max_folds": null,
+    "min_selection_frequency": 0.65,
+    "coefficient_epsilon": 1e-08,
+    "min_non_missing_fraction": 0.1,
+    "max_train_rows_per_fold": 30000,
+    "fast_mode": false,
+    "n_jobs": 4,
+    "parallel_backend": "threads",
+    "corr_threshold": 0.92,
+    "corr_pruning": "within_feature_pool_no_forced_pool_quotas",
+    "max_total_features": 25,
+    "max_features_per_family": 4,
+    "max_allowed_overfit_ratio": 1.5,
+    "clean_folds_used_for_selection": 7,
+    "n_features_before_prefilter": 334,
+    "n_features_after_prefilter_and_corr_prune": 241,
+    "elapsed_seconds": 45.00887974095531
+  }
+}

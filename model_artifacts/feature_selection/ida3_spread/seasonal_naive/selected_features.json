@@ -1,0 +1,16 @@
+{
+  "model_type": "seasonal_naive",
+  "target_name": "ida3_spread",
+  "target_column": "ida3_minus_da_spread_eur_mwh",
+  "selected_features": [
+    "ida3_minus_da_spread_eur_mwh_lag_1d_same_local_qh",
+    "ida3_minus_da_spread_eur_mwh_lag_7d_same_local_qh",
+    "ida3_minus_da_spread_eur_mwh_rolling_mean_7d_same_local_qh",
+    "ida3_minus_da_spread_eur_mwh_rolling_median_7d_same_local_qh",
+    "ida3_minus_da_spread_eur_mwh_rolling_mean_14d_same_local_qh",
+    "ida3_minus_da_spread_eur_mwh_rolling_median_14d_same_local_qh"
+  ],
+  "config": {
+    "selector": "fixed seasonal naive lag rule"
+  }
+}

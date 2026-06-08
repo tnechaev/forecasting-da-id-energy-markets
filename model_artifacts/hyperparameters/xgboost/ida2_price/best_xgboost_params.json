@@ -1,0 +1,68 @@
+{
+  "target": "ida2_price",
+  "target_kind": "price",
+  "target_column": "ida2_price_eur_mwh",
+  "model_type": "xgboost",
+  "objective_metric": "rmse_overfit_penalized",
+  "best_score": 20.755249494102337,
+  "best_trial_number": 35,
+  "best_params": {
+    "n_estimators": 500,
+    "max_depth": 2,
+    "learning_rate": 0.015654665806597044,
+    "subsample": 0.7919243334535627,
+    "colsample_bytree": 0.8642064810531975,
+    "min_child_weight": 18.777936069751885,
+    "reg_lambda": 1.7589077483008684,
+    "reg_alpha": 0.07186997700519684,
+    "gamma": 9.250906934994,
+    "objective": "reg:squarederror",
+    "tree_method": "hist",
+    "random_state": 42,
+    "n_jobs": 1
+  },
+  "selected_features_json": "model_artifacts/feature_selection/ida2_price/xgboost/selected_features.json",
+  "n_features": 11,
+  "features": [
+    "residual_load_forecast_da_mw",
+    "da_price_eur_mwh",
+    "renewable_total_forecast_da_mw",
+    "ida2_price_eur_mwh_lag_1d_same_local_qh",
+    "ida2_price_eur_mwh_rolling_median_14d_same_local_qh",
+    "ida2_price_eur_mwh_rolling_mean_3d_same_local_qh",
+    "wind_onshore_forecast_da_mw",
+    "solar_forecast_da_mw",
+    "ida2_minus_da_spread_eur_mwh_rolling_mean_28d_same_local_qh",
+    "wind_offshore_da_forecast_error_mw_lag_2d_same_local_qh",
+    "wind_onshore_da_forecast_error_mw_lag_2d_same_local_qh"
+  ],
+  "fold_setup": {
+    "window_mode": "expanding",
+    "train_window_days": 180,
+    "gap_days": 1,
+    "val_days": 30,
+    "step_days": 30,
+    "max_folds": null,
+    "folds": 8,
+    "fold_date_basis": "timestamp_utc"
+  },
+  "tuning_setup": {
+    "n_trials": 50,
+    "n_jobs": 2,
+    "max_allowed_overfit_ratio": 1.5,
+    "overfit_penalty_weight": 1.0,
+    "threshold_quantile": 0.6
+  },
+  "best_user_attrs": {
+    "score": 20.755249494102337,
+    "mean_val_rmse": 20.755249494102337,
+    "mean_val_mae": 12.404324698509804,
+    "mean_overfit_ratio_rmse": 1.0570832780463193,
+    "mean_overfit_excess": 0.0,
+    "mean_spearman": 0.926800391671025,
+    "mean_signal_spearman": 0.5891862114941256,
+    "mean_directional_accuracy": 0.710661227959419,
+    "total_pnl": 150737.54,
+    "elapsed_seconds": 3.5688647360075265
+  }
+}

@@ -1,0 +1,63 @@
+{
+  "target": "ida3_price",
+  "target_kind": "price",
+  "target_column": "ida3_price_eur_mwh",
+  "model_type": "xgboost",
+  "objective_metric": "rmse_overfit_penalized",
+  "best_score": 53.74969930383232,
+  "best_trial_number": 28,
+  "best_params": {
+    "n_estimators": 450,
+    "max_depth": 3,
+    "learning_rate": 0.013478818286629663,
+    "subsample": 0.6757070665893888,
+    "colsample_bytree": 0.8583227617091731,
+    "min_child_weight": 231.43055206445192,
+    "reg_lambda": 242.88637502030872,
+    "reg_alpha": 0.26749779772546906,
+    "gamma": 11.764457970418285,
+    "objective": "reg:squarederror",
+    "tree_method": "hist",
+    "random_state": 42,
+    "n_jobs": 1
+  },
+  "selected_features_json": "model_artifacts/feature_selection/ida3_price/xgboost/selected_features.json",
+  "n_features": 6,
+  "features": [
+    "wind_offshore_forecast_da_mw",
+    "residual_load_forecast_id_approx_mw",
+    "da_price_eur_mwh",
+    "month_sin",
+    "month_cos",
+    "wind_onshore_forecast_id_mw"
+  ],
+  "fold_setup": {
+    "window_mode": "expanding",
+    "train_window_days": 30,
+    "gap_days": 1,
+    "val_days": 10,
+    "step_days": 10,
+    "max_folds": null,
+    "folds": 9,
+    "fold_date_basis": "timestamp_utc"
+  },
+  "tuning_setup": {
+    "n_trials": 50,
+    "n_jobs": 2,
+    "max_allowed_overfit_ratio": 1.5,
+    "overfit_penalty_weight": 1.0,
+    "threshold_quantile": 0.6
+  },
+  "best_user_attrs": {
+    "score": 53.74969930383232,
+    "mean_val_rmse": 40.04879804336238,
+    "mean_val_mae": 23.25342218170205,
+    "mean_overfit_ratio_rmse": 1.3008578991987234,
+    "mean_overfit_excess": 0.3421051799266347,
+    "mean_spearman": 0.8671514622858042,
+    "mean_signal_spearman": 0.13722371397941582,
+    "mean_directional_accuracy": 0.5203703703703704,
+    "total_pnl": 2136.7399999999993,
+    "elapsed_seconds": 1.398574926017318
+  }
+}

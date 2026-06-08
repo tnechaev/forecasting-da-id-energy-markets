@@ -7,3 +7,4 @@ xgboost
 joblib
 matplotlib
 openpyxl
+optuna>=4.0
